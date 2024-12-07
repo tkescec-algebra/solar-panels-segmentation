@@ -1,3 +1,5 @@
 /models
 /wandb
 .idea
+/datasets/dataset_000
+/datasets/reduced_dataset

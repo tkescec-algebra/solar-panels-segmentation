@@ -1,11 +1,23 @@
-import torch
+import os
 import wandb
-from torch.utils.data import DataLoader
-from utils.modules import ComboLoss, SolarPanelDataset, get_transforms, get_model, train_one_epoch, validate
+import torch
 
+from torch.utils.data import DataLoader
+
+from utils.dataset import SolarPanelDataset6C, SolarPanelDataset3C
+from utils.transforms import get_transforms
+from utils.helpers import get_model, train_one_epoch, validate_dice_iou, get_criterion, get_optimizer, get_scheduler
+
+
+GRAYSCALE = True
+IN_CHANNELS = 3
+DATASET = SolarPanelDataset3C
+WANDB_MODE = "online"  # Change to "online" to log to W&B
 
 # Main function
-def main(retrain=False):
+def train(retrain=False):
+    os.environ["WANDB_MODE"] = WANDB_MODE
+
     # Initialize Weights & Biases
     wandb.init(
         project="Solar-Panel-Segmentation",
@@ -22,21 +34,22 @@ def main(retrain=False):
             "loss": "ComboLoss(BCE + Dice)",
             "width": 256,
             "height": 256,
-            "scheduler": "CosineAnnealingLR"
+            "scheduler": "StepLR",
+            "in_channels": IN_CHANNELS
         }
     )
 
     # Paths to training and validation datasets
-    train_data_dir = "dataset/train"
-    val_data_dir = "dataset/valid"
+    train_data_dir = "datasets/dataset/train"
+    val_data_dir = "datasets/dataset/valid"
 
     # Dataset i DataLoader
     train_transform = get_transforms(train=True)
     val_transform = get_transforms(train=False)
 
     # Load datasets
-    train_dataset = SolarPanelDataset(data_dir=train_data_dir, transforms=train_transform)
-    val_dataset = SolarPanelDataset(data_dir=val_data_dir, transforms=val_transform)
+    train_dataset = DATASET(data_dir=train_data_dir, transforms=train_transform, grayscale=GRAYSCALE, channels=IN_CHANNELS)
+    val_dataset = DATASET(data_dir=val_data_dir, transforms=val_transform, grayscale=GRAYSCALE, channels=IN_CHANNELS)
 
     # Create data loaders
     train_loader = DataLoader(train_dataset, batch_size=wandb.config.batch_size, shuffle=True)
@@ -44,25 +57,29 @@ def main(retrain=False):
 
     # Initialize model, loss function and optimizer
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    model = get_model(num_classes=wandb.config.num_classes).to(device)
+    model = get_model(
+        num_classes=wandb.config.num_classes,
+        model_name=wandb.config.model,
+        in_channels=wandb.config.in_channels
+    ).to(device)
 
     # Load model weights if available
     if retrain:
-        model.load_state_dict(torch.load('models/FCN-ResNet50-30.pth'))
+        model.load_state_dict(torch.load('models/FCN-ResNet50_112.pth'))
 
     # Loss function
-    # criterion = nn.BCEWithLogitsLoss()
-    # criterion = nn.MSELoss()
-    criterion = ComboLoss(bce_weight=1.0, dice_weight=1.0)
+    criterion = get_criterion(criterion_name="ComboLoss")
 
     # Initialize optimizer
-    optimizer = torch.optim.Adam(model.parameters(), lr=wandb.config.learning_rate, weight_decay=wandb.config.weight_decay)
-    # optimizer = torch.optim.SGD(model.parameters(), lr=wandb.config.learning_rate, momentum=0.9, weight_decay=wandb.config.weight_decay)
+    optimizer = get_optimizer(
+        optimizer_name=wandb.config.optimizer,
+        model=model,
+        lr=wandb.config.learning_rate,
+        weight_decay=wandb.config.weight_decay
+    )
 
     # Optionally, initialize scheduler
-    # scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, 'min', patience=5, factor=0.1)
-    # scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=10, gamma=0.1)
-    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=10, eta_min=0)
+    scheduler = get_scheduler(optimizer, scheduler_name=wandb.config.scheduler)
 
     # Watch the model with W&B
     wandb.watch(model, log="all", log_freq=10)
@@ -74,7 +91,7 @@ def main(retrain=False):
         print(f"Epoch {epoch + 1}/{wandb.config.epochs}")
 
         train_loss = train_one_epoch(model, train_loader, optimizer, criterion, device)
-        val_iou, val_dice, val_loss = validate(model, val_loader, criterion, device)
+        val_iou, val_dice, val_loss = validate_dice_iou(model, val_loader, criterion, device)
 
         print(f"Train Loss: {train_loss:.4f}")
         print(f"Val IoU: {val_iou:.4f} | Val Dice: {val_dice:.4f}")
@@ -99,11 +116,9 @@ def main(retrain=False):
     # Finish the W&B run
     wandb.finish()
 
-
 if __name__ == '__main__':
     import multiprocessing
-    import sys
 
     # For Windows compatibility
     multiprocessing.freeze_support()
-    main(retrain=False)
+    train(retrain=False)

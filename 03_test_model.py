@@ -2,12 +2,13 @@ import os
 from collections import defaultdict
 
 import torch
-from skimage.data import camera
 from torch.utils.data import DataLoader
 import numpy as np
 import matplotlib.pyplot as plt
 
-from utils.modules import SolarPanelDataset, get_transforms, get_model
+from utils.dataset import SolarPanelDataset3C
+from utils.transforms import get_transforms
+from utils.helpers import get_model
 
 # Function for visualizing predictions
 def visualize_predictions(image, truth_mask, pred_mask, image_id, save_dir=None, set_type='Validation'):
@@ -75,7 +76,7 @@ def create_dataloaders(test_dir, batch_size=8, num_workers=4):
     test_transform = get_transforms(train=False)
 
     # Dataset creation
-    test_dataset = SolarPanelDataset(data_dir=test_dir, transforms=test_transform)
+    test_dataset = SolarPanelDataset3C(data_dir=test_dir, transforms=test_transform, grayscale=True)
 
     # DataLoaders creation
     test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False, num_workers=num_workers)
@@ -90,7 +91,7 @@ def calculate_iou(truth_mask, pred_mask):
         return np.nan
     return intersection / union
 
-# Function for testing the model
+# Function for 00_explore_random_ideas the model
 def test_model(model, dataloaders, device, save_dir_test=None, num_visualize=5, camera_heights=None):
     model.eval()
     iou_per_height = defaultdict(list)
@@ -168,9 +169,9 @@ def plot_multiple_iou_per_height(datasets_iou, datasets_heights, labels, colors)
             if not np.isnan(iou):
                 plt.text(height, iou + 0.01, str(height), fontsize=9, ha='center', va='bottom', color=color)
 
-    plt.title("Prosječni IoU po visini kamere")
-    plt.xlabel("Visina kamere (metara)")
-    plt.ylabel("Prosječni IoU")
+    plt.title("Average IoU per Camera Height - FCN-ResNet50_02")
+    plt.xlabel("Camera Height (m)")
+    plt.ylabel("Average IoU")
     plt.grid(True, which="both", ls="--", linewidth=0.5)
     plt.xlim(0, 3000)
     plt.ylim(0, 1)
@@ -182,15 +183,14 @@ def plot_multiple_iou_per_height(datasets_iou, datasets_heights, labels, colors)
     plt.legend()
     plt.tight_layout()
     # Save plot
-    plt.savefig("visualizations/iou_per_height.png")
+    plt.savefig("visualizations/iou_per_height_01.png")
 
     plt.show()
 
-
-# Main function for testing the model
+# Main function for 00_explore_random_ideas the model
 def main_test(images_dir, camera_heights = None):
     # Dataset paths
-    test_images_dir = f"dataset/{images_dir}"
+    test_images_dir = f"dataset_000/{images_dir}"
 
     # Hyperparameters
     batch_size = 1
@@ -208,14 +208,14 @@ def main_test(images_dir, camera_heights = None):
     # Model loading
     num_classes = 1
     model = get_model(num_classes=num_classes)
-    model_path = "models/FCN-ResNet50_112.pth"  # Putanja do treniranog modela
+    model_path = "models/FCN-ResNet50_01_rgb.pth"  # Putanja do treniranog modela
     model.load_state_dict(torch.load(model_path, map_location=device))
     model = model.to(device)
     model.eval()
     print("Model uspješno učitan.")
 
     # Create directories for saving visualizations
-    save_dir_test = f"visualizations/{images_dir}"
+    save_dir_test = f"visualizations/{images_dir}/02"
 
     # Test the model and visualize predictions
     iou_per_height  = test_model(model, dataloaders, device, save_dir_test=save_dir_test, num_visualize=num_visualize, camera_heights=camera_heights)
